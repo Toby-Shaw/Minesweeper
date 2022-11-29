@@ -156,7 +156,9 @@ def rand_start_point(map_width, map_height, mine_map, total_coords, threshold = 
                         if not count: go = True
         rounds += 1
         if rounds > 200:
-            return(rand_start_point(map_width, map_height, mine_map, total_coords, threshold-1))
+            if threshold > 0:
+                return(rand_start_point(map_width, map_height, mine_map, total_coords, threshold-1))
+            else: return(0, 0)
     return(coord)
 
 def fill_gaps(gen_start, mine_map):
