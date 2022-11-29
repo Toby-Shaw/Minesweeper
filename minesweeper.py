@@ -4,10 +4,10 @@ from engine import Engine
 from procgen import generate_map
 
 def main():
-    s_width = 1200
-    s_height = 1200
-    g_width = 1200
-    g_height = 1200
+    s_width = 100
+    s_height = 100
+    g_width = 100
+    g_height = 100
 
     tileset = tcod.tileset.load_tilesheet("Games/Minesweeper/randomimage.png", 32, 8, tcod.tileset.CHARMAP_TCOD)
     playable = True
