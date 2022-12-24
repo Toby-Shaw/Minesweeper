@@ -6,6 +6,9 @@ import tile_types
 from entity import Entity
 import numpy as np
 
+circ_coords = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+core_coords = ((-1, -1), (1, 1))
+corner_coords = ((-1, -1), (1, -1), (-1, 1), (1, 1))
 class GrowingSeed():
 
     def __init__(self, gamemap: GameMap, allocated_space: int = 30, start_point: Tuple[int, int] = (0, 0)):
@@ -166,69 +169,88 @@ def fill_gaps(gen_start, mine_map):
     according to the number of bombs in their direct proximity"""
     gen_start = gen_start
     start_points = set()
+    bounds = np.shape(mine_map.tiles)
     prev_circle = return_circle_coords((0, 0), mine_map)
+    tiles = mine_map.tiles
+    expl = mine_map.explosive
     # First pass to fill in isolated bomb gorges
-    for x in range(np.shape(mine_map.tiles)[0]):
-        for y in range(np.shape(mine_map.tiles)[1]):
+    for x in range(bounds[0]):
+        for y in range(bounds[1]):
             now, prev_circle = sum_safes_with_back_tracking((x, y), mine_map, prev_circle)
             if now < 2:
-                mine_map.tiles[x, y] = tile_types.safe
-                mine_map.explosive[x, y] = False
+                tiles[x, y] = tile_types.safe
+                expl[x, y] = False
             elif now == 2:
                 if random.random()>0.5:
-                    mine_map.tiles[x, y] = tile_types.safe
-                    mine_map.explosive[x, y] = False
+                    tiles[x, y] = tile_types.safe
+                    expl[x, y] = False
     print(f"First pass complete in filling, onto second at {round((time.time()-gen_start), 2)}")
     # Second pass to cover isolated spaces that were converted, but still have no others around them
     prev_circle = return_circle_coords((0, 0), mine_map)
-    for x in range(np.shape(mine_map.tiles)[0]):
-        for y in range(np.shape(mine_map.tiles)[1]):
+    for x in range(bounds[0]):
+        for y in range(bounds[1]):
             now, prev_circle = sum_safes_with_back_tracking((x, y), mine_map, prev_circle)
             if now < 1:
                 new = return_random_adjacent((x, y), mine_map)
-                mine_map.tiles[new] = tile_types.safe
-                mine_map.explosive[new] = False
+                tiles[new] = tile_types.safe
+                expl[new] = False
     print(f"Second pass complete, updating all tiles to finish at {round((time.time()-gen_start), 2)}")
     # Update numbombs for each square, and change square number accordingly
     prev_circle = return_circle_coords((0, 0), mine_map)
-    for x in range(np.shape(mine_map.tiles)[0]):
-        for y in range(np.shape(mine_map.tiles)[1]):
-                count, prev_circle = sum_bombs_with_back_tracking((x, y), mine_map, prev_circle)
-                mine_map.tiles[x, y]['numbomb'] = count
-                if mine_map.tiles[x, y]['numbomb'] and not mine_map.explosive[x, y]:
-                    mine_map.tiles[x, y]['light'][0] = ord(str(mine_map.tiles[x, y]['numbomb']))
-                else: start_points.update(((x, y),))
+    for x in range(bounds[0]):
+        for y in range(bounds[1]):
+            count, prev_circle = sum_bombs_with_back_tracking((x, y), mine_map, prev_circle)
+            tiles[x, y]['numbomb'] = count
+            if tiles[x, y]['numbomb'] and not expl[x, y]:
+                tiles[x, y]['light'][0] = ord(str(tiles[x, y]['numbomb']))
+            else: start_points.update(((x, y),))
     return(mine_map, start_points)
 
-def return_random_adjacent(tile_address, mine_map, unwanted=False, trial = 0):
+def return_random_adjacent(tile_address, mine_map, unwanted=False, trial = 0, bounds=None):
     """Repeatedly try random adjacent spots until one is in bounds and not of the unwanted explosive variety.
     If none of them work after 150 attempts, simply returns the tile address given. Can preset the trial number
     to heighten or lower the number of allowed attempts"""
+    if not bounds: bounds = np.shape(mine_map.tiles)
     idea = [tile_address[0]+random.randint(-1, 1), tile_address[1]+random.randint(-1, 1)]
-    if check_in_bounds(idea, mine_map) and idea != tile_address and (
+    if idea != tile_address and check_in_bounds(idea, bounds) and (
         mine_map.explosive[idea[0], idea[1]] != unwanted):
         return(idea)
     elif trial<150: 
         trial+=1
-        return(return_random_adjacent(tile_address, mine_map, trial=trial))
+        return(return_random_adjacent(tile_address, mine_map, trial=trial, bounds=bounds))
     else: return(tile_address)
 
 def return_surrounding_types(tile_address, mine_map):
     """Return a list of surrounding tile types"""
     output = return_circle_coords(tile_address, mine_map)
     ret = []
-    for x in output: ret.append(mine_map.tiles[x]['explosive'])
+    for x, y in output: ret.append(mine_map.tiles[x, y]['explosive'])
     return(ret)
 
-def return_circle_coords(tile_address, mine_map):
+def return_circle_coords_old(tile_address, mine_map):
     """Return the Tuple addresses for all 8 surrounding squares for a tile, less if it is an edge,
     adjusting to the bounds of the map accordingly"""
     output = []
+    bounds = np.shape(mine_map.tiles)
     for x in range(-1, 2):
         for y in range(-1, 2):
             perhaps = (tile_address[0]+x, tile_address[1]+y)
-            if (x or y) and check_in_bounds(perhaps, mine_map):
+            if (x or y) and check_in_bounds(perhaps, bounds):
                 output.append(perhaps)
+    return(output)
+
+def return_circle_coords(tile_address, mine_map):
+    """Return the tuple addresses for the surrounding squares, only running corner collision checks
+    unless there is a wall of some kind. Speeds up pop_clears"""
+    output = []
+    bounds = np.shape(mine_map.tiles)
+    for x, y in core_coords:
+        perhaps = (tile_address[0]+x, tile_address[1]+y)
+        if check_in_bounds(perhaps, bounds):
+            continue
+        return(return_circle_coords_old(tile_address, mine_map))
+    for x, y in circ_coords:
+        output.append((tile_address[0]+x, tile_address[1]+y))
     return(output)
 
 def pop_clears(tile_address, mine_map, round = 0):
@@ -236,23 +258,24 @@ def pop_clears(tile_address, mine_map, round = 0):
     adjacent to it, with a given 300 recursive attempts to get them all. This means not all
     of massive landscapes at 100*100 maps and up are revealed in one go, but it is needed to
     avoid looping and recursion limits in interior functions"""
-    if not mine_map.tiles[tile_address]['numbomb'] and not mine_map.tiles[tile_address]['explosive']:
-        mine_map.revealed[tile_address] = True
-        for x in return_circle_coords(tile_address, mine_map):
-            mine_map.revealed[x] = True
+    if not mine_map.tiles[tile_address[0], tile_address[1]]['numbomb'] and (
+        not mine_map.tiles[tile_address[0], tile_address[1]]['explosive']):
+        mine_map.revealed[tile_address[0], tile_address[1]] = True
+        for x, y in return_circle_coords(tile_address, mine_map):
+            mine_map.revealed[x, y] = True
             around = []
-            for y in return_circle_coords(x, mine_map):
-                around.append(mine_map.revealed[y])
+            for w, z in return_circle_coords((x, y), mine_map):
+                around.append(mine_map.revealed[w, z])
             if not all(around):
                 stuck = set()
-                for y in return_circle_coords(x, mine_map):
-                    if not mine_map.revealed[y]:
-                        stuck.update((y,))
+                for a, b in return_circle_coords((x, y), mine_map):
+                    if not mine_map.revealed[a, b]:
+                        stuck.update(((a, b),))
                         break
                 if round<300:
                     round+=1
-                    for coords in stuck:
-                        pop_clears(coords, mine_map, round=round)
+                    for coord1, coord2 in stuck:
+                        pop_clears((coord1, coord2), mine_map, round=round)
 
 def sum_of_bombs(tile_address, mine_map):
     """Return the sum of bombs in the adjacent squares"""
@@ -282,7 +305,7 @@ def sum_safes_with_back_tracking(tile_address, mine_map, prev_circle):
         count = 0
         for x in prev_circle: count += not mine_map.explosive[x]
         return(count, prev_circle)
-    else: return(sum_safes(tile_address, mine_map), return_circle_coords(tile_address, mine_map))
+    else: return(sum_safes(tile_address, mine_map), return_circle_coords_old(tile_address, mine_map))
 
 def sum_bombs_with_back_tracking(tile_address, mine_map, prev_circle):
     """Return the sum of bombs in the adjacent squares, using previous info to speed things up
@@ -298,12 +321,12 @@ def sum_bombs_with_back_tracking(tile_address, mine_map, prev_circle):
         count = 0
         for x in prev_circle: count += mine_map.explosive[x]
         return(count, prev_circle)
-    else: return(sum_of_bombs(tile_address, mine_map), return_circle_coords(tile_address, mine_map))
+    else: return(sum_of_bombs(tile_address, mine_map), return_circle_coords_old(tile_address, mine_map))
 
-def check_in_bounds(tile_address, mine_map):
+def check_in_bounds(tile_address, bounds):
     """Check if a specified tile_address is within the boundaries of the map"""
     if tile_address[0]>=0 and tile_address[1]>=0:
-        if tile_address[0]<np.shape(mine_map.tiles)[0] and tile_address[1]<np.shape(mine_map.tiles)[1]:
+        if tile_address[0]<bounds[0] and tile_address[1]<bounds[1]:
             return True
     return False
 
